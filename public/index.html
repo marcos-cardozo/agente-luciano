@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador · Agente Luciano</title>
+<style>
+  :root {
+    --fondo: #efeae2; --barra: #075e54; --cliente: #d9fdd3; --agente: #ffffff;
+    --texto: #111b21; --suave: #667781; --panel: #ffffff; --borde: #e3ded6; --acento: #25d366;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #d1d7db; color: var(--texto); }
+  .app { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; max-width: 1100px; margin: 0 auto; padding: 16px; height: 100vh; }
+  @media (max-width: 800px) { .app { grid-template-columns: 1fr; height: auto; } .chat { height: 80vh; } }
+  .chat { display: flex; flex-direction: column; background: var(--fondo); border-radius: 12px; overflow: hidden; min-height: 0; }
+  header { background: var(--barra); color: #fff; padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
+  header .avatar { width: 38px; height: 38px; border-radius: 50%; background: #128c7e; display: grid; place-items: center; font-weight: 700; }
+  header .info { flex: 1; min-width: 0; }
+  header .nombre { font-weight: 600; }
+  header .estado { font-size: 12px; opacity: .8; }
+  header button { background: transparent; border: 1px solid rgba(255,255,255,.5); color: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+  .mensajes { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+  .burbuja { max-width: 75%; padding: 8px 10px; border-radius: 8px; white-space: pre-wrap; line-height: 1.35; box-shadow: 0 1px 1px rgba(0,0,0,.08); font-size: 14.5px; }
+  .burbuja.cliente { align-self: flex-end; background: var(--cliente); }
+  .burbuja.agente { align-self: flex-start; background: var(--agente); }
+  .burbuja .hora { display: block; text-align: right; font-size: 11px; color: var(--suave); margin-top: 2px; }
+  .escribiendo { align-self: flex-start; color: var(--suave); font-size: 13px; font-style: italic; padding: 4px 8px; }
+  form { display: flex; gap: 8px; padding: 10px; background: #f0f2f5; }
+  form input { flex: 1; border: none; border-radius: 20px; padding: 10px 14px; font-size: 15px; outline: none; }
+  form button { border: none; background: var(--acento); color: #fff; border-radius: 50%; width: 42px; height: 42px; font-size: 18px; cursor: pointer; }
+  form button:disabled { opacity: .5; cursor: default; }
+  aside { background: var(--panel); border-radius: 12px; padding: 16px; overflow-y: auto; min-height: 0; }
+  aside h2 { font-size: 16px; margin: 0 0 4px; }
+  aside p.ayuda { font-size: 13px; color: var(--suave); margin: 0 0 12px; }
+  .aviso { border: 1px solid var(--borde); border-left: 4px solid #f5a623; border-radius: 8px; padding: 10px; margin-bottom: 10px; font-size: 13.5px; }
+  .aviso.atendido { border-left-color: var(--acento); opacity: .6; }
+  .aviso b { display: block; margin-bottom: 4px; }
+  .aviso small { color: var(--suave); }
+  .aviso button { margin-top: 6px; font-size: 12px; border: 1px solid var(--borde); background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+  .vacio { color: var(--suave); font-size: 13px; }
+  .sugerencias { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 8px; background: #f0f2f5; }
+  .sugerencias button { border: 1px solid #cfd6da; background: #fff; border-radius: 14px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="chat">
+    <header>
+      <div class="avatar">HL</div>
+      <div class="info">
+        <div class="nombre">Herramientas Luciano</div>
+        <div class="estado" id="estado">Simulador · cliente <span id="clienteId"></span></div>
+      </div>
+      <button id="nuevo" title="Empieza una conversación nueva con otro cliente">Nuevo cliente</button>
+    </header>
+    <div class="mensajes" id="mensajes"></div>
+    <div class="sugerencias" id="sugerencias"></div>
+    <form id="form">
+      <input id="input" autocomplete="off" placeholder="Escribí como si fueras un cliente…">
+      <button id="enviar" aria-label="Enviar">➤</button>
+    </form>
+  </section>
+
+  <aside>
+    <h2>🔔 Avisos para Luciano</h2>
+    <p class="ayuda">Cuando un cliente quiere comprar, el agente le avisa a Luciano. En el prototipo los avisos aparecen acá.</p>
+    <div id="avisos"><p class="vacio">Todavía no hay avisos.</p></div>
+  </aside>
+</div>
+
+<script>
+  const SUGERENCIAS = [
+    'Hola, ¿tenés taladros?',
+    '¿Cuánto sale la amoladora Makita?',
+    '¿Hacen envíos?',
+    '¿En qué horario atienden?',
+    '¿Cómo puedo pagar?',
+    'Quiero el taladro Bosch, ¿cómo hago?',
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  let clienteId = nuevoClienteId();
+
+  function nuevoClienteId() {
+    return 'sim-' + Math.random().toString(36).slice(2, 8);
+  }
+  function hora() {
+    return new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  }
+  function agregarBurbuja(texto, rol) {
+    const div = document.createElement('div');
+    div.className = 'burbuja ' + rol;
+    div.textContent = texto;
+    const h = document.createElement('span');
+    h.className = 'hora';
+    h.textContent = hora();
+    div.appendChild(h);
+    $('mensajes').appendChild(div);
+    $('mensajes').scrollTop = $('mensajes').scrollHeight;
+  }
+
+  async function enviar(texto) {
+    texto = texto.trim();
+    if (!texto) return;
+    agregarBurbuja(texto, 'cliente');
+    $('input').value = '';
+    $('enviar').disabled = true;
+    const escribiendo = document.createElement('div');
+    escribiendo.className = 'escribiendo';
+    escribiendo.textContent = 'escribiendo…';
+    $('mensajes').appendChild(escribiendo);
+    try {
+      const r = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clienteId, mensaje: texto }),
+      });
+      const datos = await r.json();
+      escribiendo.remove();
+      agregarBurbuja(r.ok ? datos.respuesta : 'Error: ' + (datos.message || r.status), 'agente');
+    } catch (e) {
+      escribiendo.remove();
+      agregarBurbuja('No me pude conectar con el servidor. ¿Está corriendo npm run start:dev?', 'agente');
+    } finally {
+      $('enviar').disabled = false;
+      $('input').focus();
+      cargarAvisos();
+    }
+  }
+
+  async function cargarAvisos() {
+    try {
+      const r = await fetch('/api/avisos');
+      const avisos = await r.json();
+      const cont = $('avisos');
+      cont.innerHTML = '';
+      if (!avisos.length) {
+        cont.innerHTML = '<p class="vacio">Todavía no hay avisos.</p>';
+        return;
+      }
+      for (const a of avisos) {
+        const div = document.createElement('div');
+        div.className = 'aviso' + (a.estado === 'atendido' ? ' atendido' : '');
+        const titulo = document.createElement('b');
+        titulo.textContent = `${a.cantidad} × ${a.producto}`;
+        const quien = document.createElement('div');
+        quien.textContent = `Cliente: ${a.nombreCliente || a.clienteId}`;
+        const detalle = document.createElement('div');
+        detalle.textContent = a.detalle;
+        const cuando = document.createElement('small');
+        cuando.textContent = new Date(a.creadoEn).toLocaleString('es-AR');
+        div.append(titulo, quien, detalle, cuando);
+        if (a.estado !== 'atendido') {
+          const btn = document.createElement('button');
+          btn.textContent = 'Marcar como atendido';
+          btn.onclick = async () => {
+            await fetch(`/api/avisos/${a.id}/atendido`, { method: 'PATCH' });
+            cargarAvisos();
+          };
+          div.appendChild(btn);
+        }
+        cont.appendChild(div);
+      }
+    } catch (e) { /* el panel se actualiza en el próximo mensaje */ }
+  }
+
+  $('form').addEventListener('submit', (e) => { e.preventDefault(); enviar($('input').value); });
+  $('nuevo').addEventListener('click', () => {
+    clienteId = nuevoClienteId();
+    $('clienteId').textContent = clienteId;
+    $('mensajes').innerHTML = '';
+  });
+  for (const s of SUGERENCIAS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = s;
+    b.onclick = () => enviar(s);
+    $('sugerencias').appendChild(b);
+  }
+  $('clienteId').textContent = clienteId;
+  cargarAvisos();
+  $('input').focus();
+</script>
+</body>
+</html>
